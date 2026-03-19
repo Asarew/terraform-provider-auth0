@@ -133,8 +133,19 @@ func updateBranding(ctx context.Context, data *schema.ResourceData, meta interfa
 	api := meta.(*config.Config).GetAPI()
 
 	if branding := expandBranding(data.GetRawConfig()); branding.String() != "{}" {
+		// Work around Auth0 API bug where PATCH /api/v2/branding
+		// resets prompt settings (identifier_first, etc.) as a side effect.
+		// See: https://github.com/auth0/terraform-provider-auth0/issues/1510
+		promptsBefore, promptsReadErr := api.Prompt.Read(ctx)
+
 		if err := api.Branding.Update(ctx, branding); err != nil {
 			return diag.FromErr(err)
+		}
+
+		if promptsReadErr == nil && promptsBefore != nil {
+			if err := api.Prompt.Update(ctx, promptsBefore); err != nil {
+				return diag.FromErr(fmt.Errorf("restoring prompt settings after branding update: %w", err))
+			}
 		}
 	}
 
